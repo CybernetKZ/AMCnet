@@ -1,0 +1,51 @@
+# Ignore folder contents but keep the folders
+choosen_model/*
+!choosen_model/.gitkeep
+
+cluster_model/*
+!cluster_model/.gitkeep
+
+exp/models/*
+!exp/models/.gitkeep
+exp/runs/*
+!exp/run/.gitkeep
+
+data/*
+!data/.gitkeep
+
+inference_results/*
+!inference_results/.gitkeep
+
+test_results/*
+!test_results/.gitkeep
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Model files (if you want to ignore large model files)
+*.pt
+*.pth
+*.onnx
+
+# Temporary files
+*.tmp
+*.temp

@@ -1,0 +1,2 @@
+# This file ensures the inference_results directory is preserved in git
+# Inference output files will be saved here
