@@ -12,8 +12,8 @@ class AudioClassifier(nn.Module):
             num_classes (int): Number of output classes (default: 2 for binary classification)
         """
         super().__init__()
-        
-        
+
+
         layers = []
         prev_dim = input_dim
         
@@ -23,11 +23,11 @@ class AudioClassifier(nn.Module):
             layers.append(nn.BatchNorm1d(dim))
             layers.append(nn.Dropout(0.2))
             prev_dim = dim
-        
+
         layers.append(nn.Linear(prev_dim, num_classes))
         
         self.classifier = nn.Sequential(*layers)
-    
+
     def forward(self, x):
         """
         Forward pass through the classifier
