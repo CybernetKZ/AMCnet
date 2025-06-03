@@ -169,9 +169,9 @@ python train/test_classifier.py \
 python train/test_classifier.py \
   --test-labels data/test_labels.txt \
   --model-path models/best_model.pt \
-  --encoder-model ./cluster_model/encoder-epoch-28-avg-13.onnx \
-  --decoder-model ./cluster_model/decoder-epoch-28-avg-13.onnx \
-  --joiner-model ./cluster_model/joiner-epoch-28-avg-13.onnx \
+  --encoder-model ./encoder_model/encoder-epoch-28-avg-13.onnx \
+  --decoder-model ./encoder_model/decoder-epoch-28-avg-13.onnx \
+  --joiner-model ./encoder_model/joiner-epoch-28-avg-13.onnx \
   --threshold 0.7 \
   --output-dir test_results
 ```
@@ -330,10 +330,10 @@ python audio_inference.py \
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--input-file` | `data/data_paths.txt` | File containing paths to audio files to process |
-| `--model-path` | `./choosen_model/best_model.pt` | Path to the trained classifier model |
-| `--encoder-model` | `./cluster_model/encoder-epoch-28-avg-13.onnx` | Path to encoder ONNX model |
-| `--decoder-model` | `./cluster_model/decoder-epoch-28-avg-13.onnx` | Path to decoder ONNX model |
-| `--joiner-model` | `./cluster_model/joiner-epoch-28-avg-13.onnx` | Path to joiner ONNX model |
+| `--model-path` | `./classifier_model/best_model.pt` | Path to the trained classifier model |
+| `--encoder-model` | `./encoder_model/encoder-epoch-28-avg-13.onnx` | Path to encoder ONNX model |
+| `--decoder-model` | `./encoder_model/decoder-epoch-28-avg-13.onnx` | Path to decoder ONNX model |
+| `--joiner-model` | `./encoder_model/joiner-epoch-28-avg-13.onnx` | Path to joiner ONNX model |
 | `--detected-file` | `inference_results/detected_answering_machines.txt` | Output file for detected answering machines |
 | `--not-machine-file` | `inference_results/not_machine.txt` | Output file for non-answering machines |
 | `--too-short-file` | `inference_results/too_short_audios.txt` | Output file for audio files that are too short |

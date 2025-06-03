@@ -1,9 +1,9 @@
 # Ignore folder contents but keep the folders
-choosen_model/*
-!choosen_model/.gitkeep
+classifier_model/*
+!classifier_model/.gitkeep
 
-cluster_model/*
-!cluster_model/.gitkeep
+encoder_model/*
+!encoder_model/.gitkeep
 
 exp/models/*
 !exp/models/.gitkeep

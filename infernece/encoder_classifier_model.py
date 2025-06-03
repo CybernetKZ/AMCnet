@@ -277,9 +277,9 @@ if __name__ == "__main__":
     ]
 
     results = batch_inference(
-        encoder_model_filename="./cluster_model/encoder-epoch-28-avg-13.onnx",
-        decoder_model_filename="./cluster_model/decoder-epoch-28-avg-13.onnx",
-        joiner_model_filename="./cluster_model/joiner-epoch-28-avg-13.onnx",
+        encoder_model_filename="./encoder_model/encoder-epoch-28-avg-13.onnx",
+        decoder_model_filename="./encoder_model/decoder-epoch-28-avg-13.onnx",
+        joiner_model_filename="./encoder_model/joiner-epoch-28-avg-13.onnx",
         classifier_model_path="./models/best_model.pt",
         audio_files=audio_files,
         sample_rate=16000

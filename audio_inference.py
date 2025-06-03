@@ -50,13 +50,13 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Audio inference for answering machine detection")
     parser.add_argument("--input-file", type=str, default="data/data_paths.txt", 
                        help="File containing paths to audio files to process")
-    parser.add_argument("--model-path", type=str, default="./choosen_model/best_model.pt",
+    parser.add_argument("--model-path", type=str, default="./classifier_model/best_model.pt",
                        help="Path to the trained classifier model")
-    parser.add_argument("--encoder-model", type=str, default="./cluster_model/encoder-epoch-28-avg-13.onnx",
+    parser.add_argument("--encoder-model", type=str, default="./encoder_model/encoder-epoch-28-avg-13.onnx",
                        help="Path to encoder ONNX model")
-    parser.add_argument("--decoder-model", type=str, default="./cluster_model/decoder-epoch-28-avg-13.onnx",
+    parser.add_argument("--decoder-model", type=str, default="./encoder_model/decoder-epoch-28-avg-13.onnx",
                        help="Path to decoder ONNX model")
-    parser.add_argument("--joiner-model", type=str, default="./cluster_model/joiner-epoch-28-avg-13.onnx",
+    parser.add_argument("--joiner-model", type=str, default="./encoder_model/joiner-epoch-28-avg-13.onnx",
                        help="Path to joiner ONNX model")
     parser.add_argument("--output-dir", type=str, default="inference_results",
                        help="Directory to save inference results")
