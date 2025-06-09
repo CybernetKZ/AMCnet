@@ -1,18 +1,34 @@
 # Answermachine Audio Classifier
 
-This project implements an audio classification system that can identify whether an audio contains an answermachine message or not. It extracts audio embeddings from an ONNX encoder model and trains a binary classifier with 2 hidden layers.
+This project implements an audio classification system that can identify whether an audio contains an answermachine message or not. It extracts audio embeddings from pre-trained encoder models and trains a binary classifier with 2 hidden layers.
 
 ## Features
 
 - Audio data loading and preprocessing
 - Feature extraction using Fbank features
-- Support for pretrained ONNX encoder models
+- Support for multiple encoder types:
+  - **Zipformer models**: ONNX-based encoder models
+  - **FastConformer models**: NeMo-based encoder models from NVIDIA
 - Binary classifier with configurable hidden layers
 - Training and validation pipeline
 - Metrics for binary classification (accuracy, precision, recall, F1, AUC)
 - Support for class weights to handle imbalanced data
 - Batch inference processing with memory management
 - Automatic result file management and progress tracking
+
+## Encoder Model Support
+
+### Zipformer (ONNX Models)
+- Uses ONNX Runtime for inference
+- Requires encoder, decoder, and joiner model files
+- Optimized for CPU/GPU execution
+- Features extracted using Kaldi Fbank
+
+### FastConformer (NeMo Models)
+- Uses NVIDIA NeMo framework
+- Supports both pre-trained models and custom .nemo files
+- GPU-accelerated inference
+- Direct audio processing with built-in preprocessing
 
 ## Requirements
 
@@ -24,6 +40,7 @@ This project implements an audio classification system that can identify whether
 - k2 (for some model components)
 - tqdm
 - scikit-learn
+- **nemo-toolkit** (for FastConformer support)
 
 ## installation
 1. create env
@@ -111,17 +128,34 @@ The preparation script includes:
 
 ### Training
 
-#### 1. Easy Way
+#### 1. Easy Way - Zipformer
 Run 
 ```bash
 bash train.sh
 ``` 
 
-#### 2. Or do the following
+#### 2. Easy Way - FastConformer
 ```bash
 python train/train_classifier.py \
-  --data-dir=/path/to/audio/files \
-  --labels-file=/path/to/labels.txt \
+  --train-labels data/train_labels.txt \
+  --val-labels data/val_labels.txt \
+  --encoder-type fastconformer \
+  --encoder-model nvidia/stt_kk_ru_fastconformer_hybrid_large \
+  --batch-size 16 \
+  --epochs 10 \
+  --learning-rate 0.001 \
+  --hidden-dims 1024,512,256 \
+  --embedding-dim 512 \
+  --save-dir models \
+  --sample-rate 16000
+```
+
+#### 3. Manual Training - Zipformer
+```bash
+python train/train_classifier.py \
+  --train-labels data/train_labels.txt \
+  --val-labels data/val_labels.txt \
+  --encoder-type zipformer \
   --encoder-model=/path/to/encoder.onnx \
   --decoder-model=/path/to/decoder.onnx \
   --joiner-model=/path/to/joiner.onnx \
@@ -131,59 +165,119 @@ python train/train_classifier.py \
   --hidden-dims=256,128 \
   --embedding-dim=512 \
   --save-dir=models \
-  --sample-rate=16000 \
-  --val-split=0.2
+  --sample-rate=16000
+```
+
+#### 4. Manual Training - FastConformer
+```bash
+python train/train_classifier.py \
+  --train-labels data/train_labels.txt \
+  --val-labels data/val_labels.txt \
+  --encoder-type fastconformer \
+  --encoder-model nvidia/stt_kk_ru_fastconformer_hybrid_large \
+  --batch-size=16 \
+  --epochs=10 \
+  --learning-rate=0.001 \
+  --hidden-dims=1024,512,256 \
+  --embedding-dim=512 \
+  --save-dir=models \
+  --sample-rate=16000
+```
+
+### Training with Custom FastConformer Models
+
+#### Using Pre-trained NeMo Models
+```bash
+python train/train_classifier.py \
+  --train-labels data/train_labels.txt \
+  --val-labels data/val_labels.txt \
+  --encoder-type fastconformer \
+  --encoder-model nvidia/stt_en_fastconformer_hybrid_large_streaming \
+  --batch-size=16
+```
+
+#### Using Local .nemo Files
+```bash
+python train/train_classifier.py \
+  --train-labels data/train_labels.txt \
+  --val-labels data/val_labels.txt \
+  --encoder-type fastconformer \
+  --encoder-model path/to/your/model.nemo \
+  --batch-size=16
 ```
 
 ### Training with Class Weights
 
-If your dataset is imbalanced (e.g., more non-answermachine samples than answermachine), you can use class weights:
+If your dataset is imbalanced (e.g., more non-answermachine samples than answermachine), you can use class weights with both encoder types:
 
 ```bash
+# With FastConformer
 python train/train_classifier.py \
-  --data-dir=/path/to/audio/files \
-  --labels-file=/path/to/labels.txt \
+  --train-labels data/train_labels.txt \
+  --val-labels data/val_labels.txt \
+  --encoder-type fastconformer \
+  --encoder-model nvidia/stt_kk_ru_fastconformer_hybrid_large \
+  --class-weights=1.0,4.0  # weight for non-answermachine, weight for answermachine
+
+# With Zipformer  
+python train/train_classifier.py \
+  --train-labels data/train_labels.txt \
+  --val-labels data/val_labels.txt \
+  --encoder-type zipformer \
   --encoder-model=/path/to/encoder.onnx \
   --decoder-model=/path/to/decoder.onnx \
   --joiner-model=/path/to/joiner.onnx \
-  --class-weights=1.0,4.0  # weight for non-answermachine, weight for answermachine
+  --class-weights=1.0,4.0
 ```
 
 ## Model Testing
 
-The `test_classifier.py` script provides comprehensive evaluation of your trained model on test data.
+The `test_classifier.py` script provides comprehensive evaluation of your trained model on test data with support for both encoder types.
 
-### Basic Usage
-
-Test your model with default settings:
-```bash
-python train/test_classifier.py \
-  --test-labels data/test_labels.txt \
-  --model-path models/best_model.pt
-```
-
-### Advanced Testing
-
-#### With Custom Threshold and ONNX Models
+### Basic Usage - Zipformer
 ```bash
 python train/test_classifier.py \
   --test-labels data/test_labels.txt \
   --model-path models/best_model.pt \
+  --encoder-type zipformer \
+  --encoder-model ./encoder_model/encoder-epoch-28-avg-13.onnx \
+  --decoder-model ./encoder_model/decoder-epoch-28-avg-13.onnx \
+  --joiner-model ./encoder_model/joiner-epoch-28-avg-13.onnx
+```
+
+### Basic Usage - FastConformer
+```bash
+python train/test_classifier.py \
+  --test-labels data/test_labels.txt \
+  --model-path models/best_model.pt \
+  --encoder-type fastconformer \
+  --encoder-model nvidia/stt_kk_ru_fastconformer_hybrid_large
+```
+
+### Advanced Testing
+
+#### FastConformer with Custom Threshold
+```bash
+python train/test_classifier.py \
+  --test-labels data/test_labels.txt \
+  --model-path models/best_model.pt \
+  --encoder-type fastconformer \
+  --encoder-model nvidia/stt_kk_ru_fastconformer_hybrid_large \
+  --threshold 0.7 \
+  --output-dir test_results
+```
+
+#### Zipformer with Custom Settings
+```bash
+python train/test_classifier.py \
+  --test-labels data/test_labels.txt \
+  --model-path models/best_model.pt \
+  --encoder-type zipformer \
   --encoder-model ./encoder_model/encoder-epoch-28-avg-13.onnx \
   --decoder-model ./encoder_model/decoder-epoch-28-avg-13.onnx \
   --joiner-model ./encoder_model/joiner-epoch-28-avg-13.onnx \
   --threshold 0.7 \
   --output-dir test_results
-```
-
-#### Custom Batch Size and Workers
-```bash
-python train/test_classifier.py \
-  --test-labels data/test_labels.txt \
-  --model-path models/best_model.pt \
-  --batch-size 64 \
-  --num-workers 8 \
-  --sample-rate 16000
 ```
 
 ### Command Line Arguments
@@ -192,9 +286,10 @@ python train/test_classifier.py \
 |----------|----------|---------|-------------|
 | `--test-labels` | ✅ | - | File containing test labels with full paths |
 | `--model-path` | ✅ | - | Path to the trained model checkpoint |
-| `--encoder-model` | ❌ | None | Path to encoder ONNX model |
-| `--decoder-model` | ❌ | None | Path to decoder ONNX model |
-| `--joiner-model` | ❌ | None | Path to joiner ONNX model |
+| `--encoder-type` | ❌ | zipformer | Type of encoder: 'zipformer' or 'fastconformer' |
+| `--encoder-model` | ❌ | None | Path/name of encoder model |
+| `--decoder-model` | ❌ | None | Path to decoder ONNX model (zipformer only) |
+| `--joiner-model` | ❌ | None | Path to joiner ONNX model (zipformer only) |
 | `--threshold` | ❌ | 0.7 | Probability threshold for classification |
 | `--batch-size` | ❌ | 32 | Batch size for testing |
 | `--sample-rate` | ❌ | 16000 | Sample rate of audio files |
@@ -278,51 +373,67 @@ The classification threshold affects the precision/recall trade-off:
 
 ## Audio Inference
 
-The `audio_inference.py` script provides batch processing capabilities for classifying audio files using a trained model.
+The `audio_inference.py` script provides batch processing capabilities for classifying audio files using a trained model with support for both Zipformer and FastConformer encoders.
 
-### Basic Usage
-
-Process audio files with default settings:
+### Basic Usage - FastConformer
 ```bash
-python audio_inference.py --input-file data/audio_paths.txt
+python audio_inference.py \
+  --input-file data/audio_paths.txt \
+  --encoder-type fastconformer \
+  --encoder-model nvidia/stt_kk_ru_fastconformer_hybrid_large
+```
+
+### Basic Usage - Zipformer
+```bash
+python audio_inference.py \
+  --input-file data/audio_paths.txt \
+  --encoder-type zipformer \
+  --encoder-model models/encoder.onnx \
+  --decoder-model models/decoder.onnx \
+  --joiner-model models/joiner.onnx
 ```
 
 ### Advanced Usage
 
-#### Custom Model and Threshold
+#### FastConformer with Custom Model and Threshold
 ```bash
 python audio_inference.py \
   --input-file data/audio_paths.txt \
+  --encoder-type fastconformer \
+  --encoder-model nvidia/stt_en_fastconformer_hybrid_large_streaming \
   --model-path models/my_model.pt \
   --threshold 0.7 \
   --output-dir results
+```
+
+#### FastConformer with Local .nemo File
+```bash
+python audio_inference.py \
+  --input-file data/audio_paths.txt \
+  --encoder-type fastconformer \
+  --encoder-model path/to/your/model.nemo \
+  --threshold 0.6
 ```
 
 #### Using CPU Instead of GPU
 ```bash
 python audio_inference.py \
   --input-file data/audio_paths.txt \
+  --encoder-type fastconformer \
+  --encoder-model nvidia/stt_kk_ru_fastconformer_hybrid_large \
   --device cpu
 ```
 
-#### Custom ONNX Models and Audio Settings
+#### Zipformer with Custom Audio Settings
 ```bash
 python audio_inference.py \
   --input-file data/audio_paths.txt \
+  --encoder-type zipformer \
   --encoder-model models/encoder.onnx \
   --decoder-model models/decoder.onnx \
   --joiner-model models/joiner.onnx \
   --sample-rate 8000 \
   --min-duration 5.0
-```
-
-#### Custom Output Files
-```bash
-python audio_inference.py \
-  --input-file data/audio_paths.txt \
-  --detected-file results/answering_machines.txt \
-  --not-machine-file results/human_voices.txt \
-  --too-short-file results/short_files.txt
 ```
 
 ### Command Line Arguments
@@ -331,9 +442,10 @@ python audio_inference.py \
 |----------|---------|-------------|
 | `--input-file` | `data/data_paths.txt` | File containing paths to audio files to process |
 | `--model-path` | `./classifier_model/best_model.pt` | Path to the trained classifier model |
-| `--encoder-model` | `./encoder_model/encoder-epoch-28-avg-13.onnx` | Path to encoder ONNX model |
-| `--decoder-model` | `./encoder_model/decoder-epoch-28-avg-13.onnx` | Path to decoder ONNX model |
-| `--joiner-model` | `./encoder_model/joiner-epoch-28-avg-13.onnx` | Path to joiner ONNX model |
+| `--encoder-type` | `zipformer` | Type of encoder: 'zipformer' or 'fastconformer' |
+| `--encoder-model` | `./encoder_model/encoder-epoch-28-avg-13.onnx` | Path to encoder model (ONNX for zipformer, model name/path for fastconformer) |
+| `--decoder-model` | `./encoder_model/decoder-epoch-28-avg-13.onnx` | Path to decoder ONNX model (zipformer only) |
+| `--joiner-model` | `./encoder_model/joiner-epoch-28-avg-13.onnx` | Path to joiner ONNX model (zipformer only) |
 | `--detected-file` | `inference_results/detected_answering_machines.txt` | Output file for detected answering machines |
 | `--not-machine-file` | `inference_results/not_machine.txt` | Output file for non-answering machines |
 | `--too-short-file` | `inference_results/too_short_audios.txt` | Output file for audio files that are too short |
@@ -367,27 +479,19 @@ The script generates three output files:
 - **Error handling**: Graceful handling of corrupted files and memory issues
 - **Batch processing**: Efficient processing of large audio datasets
 
-### Performance Tips
-
-1. **GPU Memory**: For large audio files, the script automatically chunks audio to prevent GPU memory overflow
-2. **Batch Size**: Use `--batch-report-interval` to control memory cleanup frequency
-3. **Audio Duration**: Set appropriate `--min-duration` to filter out very short clips
-4. **Device Selection**: Use `--device cpu` if GPU memory is limited
-
 ## Components
 
 ### AudioClassifierDataset
 
-Handles loading audio files and their corresponding labels.
+Handles loading audio files and their corresponding labels with support for both encoder types.
 
 ### AudioClassifierDataLoader
 
-Handles batch processing, including:
-- Loading audio data
-- Extracting features
-- Getting embeddings from encoder model (if provided)
-- Padding sequences
-- Preparing batches for training
+Handles batch processing with encoder-specific logic:
+- **Zipformer**: Batch processing with Kaldi Fbank feature extraction
+- **FastConformer**: Individual file processing with NeMo preprocessing pipeline
+- Automatic feature extraction and embedding generation
+- Support for different encoder architectures
 
 ### AudioClassifier
 
@@ -398,17 +502,13 @@ A binary neural network classifier with:
 - Output layer with 2 classes (0 = not answermachine, 1 = answermachine)
 - Probability prediction method
 
-## Model Evaluation
+## FastConformer Models
 
-The model is evaluated using several metrics suitable for binary classification:
-- Accuracy: Overall correct classifications
-- Precision: How many predicted answermachine samples are actually answermachine
-- Recall: How many actual answermachine samples are correctly identified
-- F1 Score: Harmonic mean of precision and recall
-- AUC: Area under the ROC curve
+### Using Custom .nemo Models
 
-The model checkpoint is saved based on the highest F1 score on the validation set.
-
-pip install --force-reinstall --no-cache-dir onnxruntime==1.19.2
-
-pip install --force-reinstall --no-cache-dir scipy
+# Inference with custom .nemo model  
+python audio_inference.py \
+  --encoder-type fastconformer \
+  --encoder-model /path/to/your/custom_model.nemo \
+  --input-file data/audio_paths.txt
+```
