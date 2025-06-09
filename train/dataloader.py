@@ -5,16 +5,18 @@ import torchaudio.transforms as T
 import kaldifeat
 
 class AudioClassifierDataset(Dataset):
-    def __init__(self, audio_files, labels, sample_rate=16000):
+    def __init__(self, audio_files, labels, sample_rate=16000, return_index=False):
         """
         Args:
             audio_files (list): List of audio file paths
             labels (list): List of corresponding labels
             sample_rate (int): Expected sample rate for audio files
+            return_index (bool): Whether to return index along with features and labels
         """
         self.audio_files = audio_files
         self.labels = labels
         self.sample_rate = sample_rate
+        self.return_index = return_index
         
         
         opts = kaldifeat.FbankOptions()
@@ -43,4 +45,7 @@ class AudioClassifierDataset(Dataset):
         wave = wave[0]
         features = self.fbank([wave])[0]  
         
-        return features, self.labels[index]
+        if self.return_index:
+            return features, self.labels[index], index
+        else:
+            return features, self.labels[index]

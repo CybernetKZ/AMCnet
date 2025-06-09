@@ -25,7 +25,7 @@ class AudioClassifier(nn.Module):
             prev_dim = dim
 
         layers.append(nn.Linear(prev_dim, num_classes))
-        
+
         self.classifier = nn.Sequential(*layers)
 
     def forward(self, x):

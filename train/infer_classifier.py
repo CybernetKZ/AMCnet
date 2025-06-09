@@ -21,6 +21,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Run inference on audio files for answering machine detection")
     parser.add_argument("--input-file", type=str, required=True, help="File containing paths to audio files")
     parser.add_argument("--model-path", type=str, required=True, help="Path to the trained model checkpoint")
+    parser.add_argument("--encoder-type", type=str, default="zipformer", help="Type of encoder - 'zipformer' or 'fastconformer'")
     parser.add_argument("--encoder-model", type=str, default=None, help="Path to encoder ONNX model")
     parser.add_argument("--decoder-model", type=str, default=None, help="Path to decoder ONNX model")
     parser.add_argument("--joiner-model", type=str, default=None, help="Path to joiner ONNX model")
@@ -118,6 +119,7 @@ def main():
         batch_size=args.batch_size,
         shuffle=False,
         encoder_model=encoder_model,
+        encoder_type=args.encoder_type,
         num_workers=args.num_workers
     )
     

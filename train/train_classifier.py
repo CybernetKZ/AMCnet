@@ -15,6 +15,7 @@ from dataloader import AudioClassifierDataset
 from encoder_dataloader import AudioClassifierDataLoader
 from classifier_model import AudioClassifier
 from infernece.base_model import OnnxModel
+from nemo.collections import asr as nemo_asr
 
 def setup_logger():
     formatter = "%(asctime)s %(levelname)s [%(filename)s:%(lineno)d] %(message)s"
@@ -25,6 +26,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train audio classifier for answermachine detection")
     parser.add_argument("--train-labels", type=str, required=True, help="File containing training labels with full paths")
     parser.add_argument("--val-labels", type=str, required=True, help="File containing validation labels with full paths")
+    parser.add_argument("--encoder-type", type=str, default="zipformer", help="Type of encoder - 'zipformer' or 'fastconformer'")
     parser.add_argument("--encoder-model", type=str, default="./encoder_model/encoder-epoch-28-avg-13.onnx", help="Path to encoder ONNX model")
     parser.add_argument("--decoder-model", type=str, default="./encoder_model/decoder-epoch-28-avg-13.onnx", help="Path to decoder ONNX model")
     parser.add_argument("--joiner-model", type=str, default="./encoder_model/joiner-epoch-28-avg-13.onnx", help="Path to joiner ONNX model")
@@ -219,11 +221,23 @@ def main():
     encoder_model = None
     if args.encoder_model and args.decoder_model and args.joiner_model:
         logger.info("Initializing encoder model...")
-        encoder_model = OnnxModel(
-            encoder_model_filename=args.encoder_model,
-            decoder_model_filename=args.decoder_model,
-            joiner_model_filename=args.joiner_model,
-        )
+        if args.encoder_type == "zipformer":
+            encoder_model = OnnxModel(
+                encoder_model_filename=args.encoder_model,
+                decoder_model_filename=args.decoder_model,
+                joiner_model_filename=args.joiner_model,
+            )
+        elif args.encoder_type == "fastconformer":
+            if ".nemo" not in args.encoder_model:
+                encoder_model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained( 
+                    model_name=args.encoder_model,
+                    map_location=f"cuda"
+                )
+            else:
+                encoder_model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.restore_from( 
+                    restore_path=args.encoder_model,
+                    map_location=f"cuda"
+                )
     
     logger.info("Creating datasets...")
     train_dataset = AudioClassifierDataset(train_audio_files, train_labels, sample_rate=args.sample_rate)
@@ -237,14 +251,16 @@ def main():
         train_dataset, 
         batch_size=args.batch_size, 
         shuffle=True, 
-        encoder_model=encoder_model
+        encoder_model=encoder_model,
+        encoder_type=args.encoder_type
     )
     
     val_loader = AudioClassifierDataLoader(
         val_dataset, 
         batch_size=args.batch_size, 
         shuffle=False, 
-        encoder_model=encoder_model
+        encoder_model=encoder_model,
+        encoder_type=args.encoder_type
     )
     
     logger.info("Creating binary classifier model for answermachine detection...")

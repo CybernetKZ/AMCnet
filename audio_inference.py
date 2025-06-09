@@ -2,10 +2,21 @@
 Audio Inference Script for Answering Machine Detection
 
 This script processes audio files to detect answering machines using a pre-trained classifier.
+Supports both Zipformer (ONNX) and FastConformer (NeMo) encoders.
 
 Usage examples:
-    # Basic usage with default settings
+    # default
     python audio_inference.py --input-file data/audio_paths.txt
+
+    # Using FastConformer encoder
+    python audio_inference.py --input-file data/audio_paths.txt \
+        --encoder-type fastconformer \
+        --encoder-model nvidia/stt_kk_ru_fastconformer_hybrid_large
+
+    # Using FastConformer with local .nemo file
+    python audio_inference.py --input-file data/audio_paths.txt \
+        --encoder-type fastconformer \
+        --encoder-model path/to/model.nemo
 
     # Custom threshold and output directory
     python audio_inference.py --input-file data/audio_paths.txt --threshold 0.7 --output-dir results
@@ -13,8 +24,9 @@ Usage examples:
     # Use CPU instead of GPU
     python audio_inference.py --input-file data/audio_paths.txt --device cpu
 
-    # Custom model paths
+    # Custom zipformer model paths
     python audio_inference.py --input-file data/audio_paths.txt \
+        --encoder-type zipformer \
         --model-path models/my_model.pt \
         --encoder-model models/encoder.onnx \
         --decoder-model models/decoder.onnx \
@@ -40,6 +52,7 @@ import argparse
 
 from train.classifier_model import AudioClassifier
 from infernece.base_model import OnnxModel
+from nemo.collections import asr as nemo_asr
 
 def setup_logger():
     formatter = "%(asctime)s %(levelname)s [%(filename)s:%(lineno)d] %(message)s"
@@ -52,12 +65,14 @@ def parse_args():
                        help="File containing paths to audio files to process")
     parser.add_argument("--model-path", type=str, default="./classifier_model/best_model.pt",
                        help="Path to the trained classifier model")
+    parser.add_argument("--encoder-type", type=str, default="zipformer", 
+                       help="Type of encoder - 'zipformer' or 'fastconformer'")
     parser.add_argument("--encoder-model", type=str, default="./encoder_model/encoder-epoch-28-avg-13.onnx",
-                       help="Path to encoder ONNX model")
+                       help="Path to encoder ONNX model (zipformer) or model name/path (fastconformer)")
     parser.add_argument("--decoder-model", type=str, default="./encoder_model/decoder-epoch-28-avg-13.onnx",
-                       help="Path to decoder ONNX model")
+                       help="Path to decoder ONNX model (zipformer only)")
     parser.add_argument("--joiner-model", type=str, default="./encoder_model/joiner-epoch-28-avg-13.onnx",
-                       help="Path to joiner ONNX model")
+                       help="Path to joiner ONNX model (zipformer only)")
     parser.add_argument("--output-dir", type=str, default="inference_results",
                        help="Directory to save inference results")
     parser.add_argument("--detected-file", type=str, default="inference_results/detected_answering_machines.txt",
@@ -85,7 +100,7 @@ def clear_memory():
     
     gc.collect()
 
-def process_single_audio_inference(audio_path, model, encoder, device, threshold, sample_rate=16000, min_duration=3):
+def process_single_audio_inference(audio_path, model, encoder, encoder_type, device, threshold, sample_rate=16000, min_duration=3):
     """Process a single audio file and return prediction results."""
     logger = logging.getLogger(__name__)
     
@@ -101,117 +116,161 @@ def process_single_audio_inference(audio_path, model, encoder, device, threshold
     probs = None
     resampler = None
     fbank = None
-    
+
     try:
+
         wave, sr = torchaudio.load(audio_path)
-        
         duration = wave.shape[1] / sr
         if duration < min_duration:
             logger.warning(f"Audio duration ({duration:.2f}s) is less than minimum duration ({min_duration}s). Skipping...")
             raise RuntimeError(f"Audio too short: {duration:.2f}s")
-            
-        if sr != sample_rate:
-            logger.info(f"Resampling from {sr}Hz to {sample_rate}Hz")
-            resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=sample_rate)
-            wave = resampler(wave)
-            del resampler
-            resampler = None
-
-        wave = wave.to(device)
         
-        opts = kaldifeat.FbankOptions()
-        opts.device = "cuda"  
-        opts.frame_opts.dither = 0
-        opts.frame_opts.snip_edges = False
-        opts.frame_opts.samp_freq = sample_rate
-        opts.mel_opts.num_bins = 80
-        opts.mel_opts.high_freq = -400
-        fbank = kaldifeat.Fbank(opts)
-
-        chunk_size = 16000 * 30  
-        if wave.shape[1] > chunk_size:
-            logger.info(f"Processing audio in chunks of {chunk_size/sr:.1f} seconds")
-            features_list = []
-            for i in range(0, wave.shape[1], chunk_size):
-                chunk = wave[:, i:i+chunk_size]
-                chunk_features = fbank([chunk[0]])[0]
-                features_list.append(chunk_features)
-                clear_memory()
+        if encoder_type == "fastconformer":
             
-            features = torch.cat(features_list, dim=0)
+            from infernece.fastconformer_encoder import run_encoder
+            
+            with torch.no_grad():
+                try:
+                    
+                    encoder_out = run_encoder(
+                        audio_path=audio_path,
+                        model=encoder,
+                        target_sample_rate=sample_rate,
+                        normalize=True
+                    )
+                    
+                    
+                    
+                    embedding = encoder_out.mean(dim=2).squeeze(0)  
+                    
+                    del encoder_out
+                    encoder_out = None
+                    clear_memory()
+                    
+                    embedding_tensor = embedding.unsqueeze(0).to(device)
+                    del embedding
+                    embedding = None
+                    
+                    outputs = model(embedding_tensor)
+                    probs = torch.softmax(outputs, dim=1)
+                    prob = probs[0][1].item() 
+                    pred = 1 if prob > threshold else 0
+                    
+                    del embedding_tensor, outputs, probs
+                    embedding_tensor = None
+                    outputs = None
+                    probs = None
+
+                    return pred, prob
+                    
+                except Exception as e:
+                    logger.error(f"Error in FastConformer processing: {str(e)}")
+                    raise
+                    
         else:
-            features = fbank([wave[0]])[0]
+            
+            if sr != sample_rate:
+                logger.info(f"Resampling from {sr}Hz to {sample_rate}Hz")
+                resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=sample_rate)
+                wave = resampler(wave)
+                del resampler
+                resampler = None
 
-        if features.shape[0] > 10000:  
-            logger.warning(f"Features too long ({features.shape[0]} frames). Trimming...")
-            features = features[:10000]
+            wave = wave.to(device)
+            
+            opts = kaldifeat.FbankOptions()
+            opts.device = "cuda"  
+            opts.frame_opts.dither = 0
+            opts.frame_opts.snip_edges = False
+            opts.frame_opts.samp_freq = sample_rate
+            opts.mel_opts.num_bins = 80
+            opts.mel_opts.high_freq = -400
+            fbank = kaldifeat.Fbank(opts)
 
-        feature_lengths = torch.tensor([features.size(0)], dtype=torch.int64, device=device)
+            chunk_size = 16000 * 30  
+            if wave.shape[1] > chunk_size:
+                logger.info(f"Processing audio in chunks of {chunk_size/sr:.1f} seconds")
+                features_list = []
+                for i in range(0, wave.shape[1], chunk_size):
+                    chunk = wave[:, i:i+chunk_size]
+                    chunk_features = fbank([chunk[0]])[0]
+                    features_list.append(chunk_features)
+                    clear_memory()
+                
+                features = torch.cat(features_list, dim=0)
+            else:
+                features = fbank([wave[0]])[0]
 
-        del wave, fbank
-        wave = None
-        fbank = None
-        clear_memory()
+            if features.shape[0] > 10000:  
+                logger.warning(f"Features too long ({features.shape[0]} frames). Trimming...")
+                features = features[:10000]
 
-        features = pad_sequence(
-            [features],
-            batch_first=True,
-            padding_value=math.log(1e-10)
-        )
+            feature_lengths = torch.tensor([features.size(0)], dtype=torch.int64, device=device)
 
-        with torch.no_grad():
-            try:
-                encoder_out, encoder_out_lens = encoder.run_encoder(features, feature_lengths)
-                
-                del features, feature_lengths
-                features = None
-                clear_memory()
-                
-                valid_length = encoder_out_lens[0]
-                embedding = encoder_out[0, :valid_length].mean(dim=0)
-                
-                if isinstance(embedding, torch.Tensor):
-                    embedding_cpu = embedding.detach().cpu().clone()
-                    embedding_np = embedding_cpu.numpy().copy()  
-                    del embedding_cpu
-                    embedding_cpu = None
-                else:
-                    embedding_np = embedding.copy()
-                
-                del encoder_out, encoder_out_lens, embedding
-                encoder_out = None
-                encoder_out_lens = None
-                embedding = None
-                clear_memory()
-                
-                embedding_tensor = torch.from_numpy(embedding_np).unsqueeze(0).to(device)
-                del embedding_np  
-                embedding_np = None
-                
-                outputs = model(embedding_tensor)
-                probs = torch.softmax(outputs, dim=1)
-                prob = probs[0][1].item() 
-                pred = 1 if prob > threshold else 0
-                
-                del embedding_tensor, outputs, probs
-                embedding_tensor = None
-                outputs = None
-                probs = None
+            del wave, fbank
+            wave = None
+            fbank = None
+            clear_memory()
 
-                return pred, prob
-                
-            except RuntimeError as e:
-                if "out of memory" in str(e) or "Failed to allocate memory" in str(e):
-                    logger.error(f"GPU out of memory while processing {audio_path}. Trying with reduced batch size...")
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    raise RuntimeError(f"GPU out of memory: {str(e)}")
-                raise
-            except Exception as e:
-                if "Integer overflow" in str(e):
-                    logger.error(f"Integer overflow while processing {audio_path}. File might be too large or corrupted.")
-                    raise RuntimeError(f"Integer overflow: {str(e)}")
-                raise
+            features = pad_sequence(
+                [features],
+                batch_first=True,
+                padding_value=math.log(1e-10)
+            )
+
+            with torch.no_grad():
+                try:
+                    encoder_out, encoder_out_lens = encoder.run_encoder(features, feature_lengths)
+                    
+                    del features, feature_lengths
+                    features = None
+                    clear_memory()
+                    
+                    valid_length = encoder_out_lens[0]
+                    embedding = encoder_out[0, :valid_length].mean(dim=0)
+                    
+                    if isinstance(embedding, torch.Tensor):
+                        embedding_cpu = embedding.detach().cpu().clone()
+                        embedding_np = embedding_cpu.numpy().copy()  
+                        del embedding_cpu
+                        embedding_cpu = None
+                    else:
+                        embedding_np = embedding.copy()
+                    
+                    del encoder_out, encoder_out_lens, embedding
+                    encoder_out = None
+                    encoder_out_lens = None
+                    embedding = None
+                    clear_memory()
+                    
+                    embedding_tensor = torch.from_numpy(embedding_np).unsqueeze(0).to(device)
+                    del embedding_np  
+                    embedding_np = None
+                    
+                    outputs = model(embedding_tensor)
+                    probs = torch.softmax(outputs, dim=1)
+                    prob = probs[0][1].item() 
+                    pred = 1 if prob > threshold else 0
+                    
+                    del embedding_tensor, outputs, probs
+                    embedding_tensor = None
+                    outputs = None
+                    probs = None
+
+                    return pred, prob
+                    
+                except RuntimeError as e:
+                    if "out of memory" in str(e) or "Failed to allocate memory" in str(e):
+                        logger.error(f"GPU out of memory while processing {audio_path}. Trying with reduced batch size...")
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        raise RuntimeError(f"GPU out of memory: {str(e)}")
+                    raise
+                except Exception as e:
+                    if "Integer overflow" in str(e):
+                        logger.error(f"Integer overflow while processing {audio_path}. File might be too large or corrupted.")
+                        raise RuntimeError(f"Integer overflow: {str(e)}")
+                    raise
         
     finally:
         variables_to_clean = [
@@ -226,7 +285,7 @@ def process_single_audio_inference(audio_path, model, encoder, device, threshold
         
         clear_memory()
 
-def process_audio(audio_path, model, encoder, device, threshold, sample_rate=16000, detected_file=None, not_machine_file=None, stats=None, min_duration=3):
+def process_audio(audio_path, model, encoder, encoder_type, device, threshold, sample_rate=16000, detected_file=None, not_machine_file=None, stats=None, min_duration=3):
     """Process a single audio file with the pre-initialized models."""
     logger = setup_logger()
 
@@ -235,7 +294,7 @@ def process_audio(audio_path, model, encoder, device, threshold, sample_rate=160
 
     try:
         logger.info("Running inference...")
-        pred, prob = process_single_audio_inference(audio_path, model, encoder, device, threshold, sample_rate, min_duration)
+        pred, prob = process_single_audio_inference(audio_path, model, encoder, encoder_type, device, threshold, sample_rate, min_duration)
 
         logger.info("\nResults:")
         logger.info(f"Audio file: {os.path.basename(audio_path)}")
@@ -291,12 +350,12 @@ def main():
     args = parse_args()
     logger = setup_logger()
     
-    # Set up output file paths
+    
     detected_file = args.detected_file
     not_machine_file = args.not_machine_file
     too_short_file = args.too_short_file
     
-    # Create output directory if it doesn't exist (extract from file paths)
+    
     for file_path in [detected_file, not_machine_file, too_short_file]:
         file_dir = os.path.dirname(file_path)
         if file_dir and not os.path.exists(file_dir):
@@ -332,7 +391,7 @@ def main():
     
     stats = {'valid': 0, 'invalid': 0, 'skipped': 0, 'errors': 0, 'too_short': 0}
     
-    # Setup device
+    
     if args.device == "cuda" and not torch.cuda.is_available():
         logger.warning("CUDA requested but not available. Falling back to CPU.")
         device = torch.device("cpu")
@@ -347,13 +406,31 @@ def main():
         logger.info(f"Loading model from {args.model_path}")
         checkpoint = torch.load(args.model_path, map_location=device)
         
-        if all([args.encoder_model, args.decoder_model, args.joiner_model]):
-            logger.info("Initializing encoder model...")
-            encoder = OnnxModel(
-                encoder_model_filename=args.encoder_model,
-                decoder_model_filename=args.decoder_model,
-                joiner_model_filename=args.joiner_model,
-            )
+        
+        if args.encoder_type == "zipformer":
+            if all([args.encoder_model, args.decoder_model, args.joiner_model]):
+                logger.info("Initializing zipformer encoder model...")
+                encoder = OnnxModel(
+                    encoder_model_filename=args.encoder_model,
+                    decoder_model_filename=args.decoder_model,
+                    joiner_model_filename=args.joiner_model,
+                )
+            else:
+                raise ValueError("For zipformer, all encoder, decoder, and joiner model paths are required")
+        elif args.encoder_type == "fastconformer":
+            logger.info("Initializing fastconformer encoder model...")
+            if ".nemo" in args.encoder_model:
+                encoder = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.restore_from( 
+                    restore_path=args.encoder_model,
+                    map_location=f"cuda"
+                )
+            else:
+                encoder = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained( 
+                    model_name=args.encoder_model,
+                    map_location=f"cuda"
+                )
+        else:
+            raise ValueError(f"Unsupported encoder type: {args.encoder_type}. Use 'zipformer' or 'fastconformer'")
         
         model = AudioClassifier(
             input_dim=checkpoint['input_dim'],
@@ -372,6 +449,7 @@ def main():
                     audio_path=audio_path,
                     model=model,
                     encoder=encoder,
+                    encoder_type=args.encoder_type,
                     device=device,
                     threshold=args.threshold,
                     sample_rate=args.sample_rate,
