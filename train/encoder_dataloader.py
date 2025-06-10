@@ -27,7 +27,7 @@ class AudioClassifierDataLoader(DataLoader):
         if self.encoder_type not in ["zipformer", "fastconformer"]:
             raise ValueError("encoder_type must be either 'zipformer' or 'fastconformer'")
         
-        # For fastconformer, ensure dataset returns indices
+        
         if self.encoder_type == "fastconformer":
             if hasattr(self.dataset, 'return_index'):
                 self.dataset.return_index = True
@@ -37,26 +37,25 @@ class AudioClassifierDataLoader(DataLoader):
         
         def collate_fn(batch):
             
-            # For fastconformer, we need to track original indices to get audio paths
             if self.encoder_type == "fastconformer":
-                # Get batch items with their original indices
+                
                 features = []
                 labels = []
                 audio_paths = []
                 
                 for item in batch:
-                    if len(item) == 3:  # (feature, label, index) or (audio_path, label, index)
+                    if len(item) == 3:  
                         feature, label, idx = item
                         features.append(feature)
                         labels.append(label)
-                        # Get audio path from dataset using the index
+                        
                         audio_paths.append(self.dataset.audio_files[idx])
-                    else:  # (feature, label)
-                        # This is a fallback - we'll need the dataset to be modified
+                    else:  
+                        
                         raise ValueError("For fastconformer encoder, please modify your dataset to return indices. "
                                        "See the updated AudioClassifierDataset.")
             else:
-                # Original zipformer behavior
+                
                 features = [item[0] for item in batch]
                 labels = [item[1] for item in batch]
             
@@ -92,8 +91,8 @@ class AudioClassifierDataLoader(DataLoader):
                                 normalize=True
                             )
                             
-                            emb = encoder_out.mean(dim=2)  # Average across time dimension (dim=2)
-                            emb = emb.squeeze(0)  # Remove batch dimension: [features=512]
+                            emb = encoder_out.mean(dim=2)  
+                            emb = emb.squeeze(0)  
                             embeddings.append(emb)
                 
                 
