@@ -1,10 +1,6 @@
 #! /bin/bash
 
-python train/infer_classifier.py \
-    --input-file data_paths.txt \
-    --model-path ./classifier_model/best_model.pt \
-    --encoder-model ./encoder_model/encoder-epoch-28-avg-13.onnx \
-    --decoder-model ./encoder_model/decoder-epoch-28-avg-13.onnx \
-    --joiner-model ./encoder_model/joiner-epoch-28-avg-13.onnx \
-    --output-dir inference_results \
-    --threshold 0.5
+python audio_inference.py \
+        --input-file data/data_paths.txt \
+        --encoder-type fastconformer \
+        --encoder-model encoder_model/asr_fastconformer_large_14_universal_kzru_v1_11_01_2025.nemo

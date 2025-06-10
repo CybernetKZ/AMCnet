@@ -6,12 +6,6 @@ from typing import Optional, Union
 import warnings
 from nemo.collections import asr as nemo_asr
 
-
-model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained( 
-    model_name="nvidia/stt_kk_ru_fastconformer_hybrid_large",
-    map_location=f"cuda"
-)
-
 def run_encoder(audio_path: str, 
                 model: torch.nn.Module,
                 target_sample_rate: Optional[int] = None,
@@ -99,6 +93,12 @@ def run_encoder(audio_path: str,
 
 
 if __name__ == "__main__":
+    
+    model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained( 
+        model_name="nvidia/stt_kk_ru_fastconformer_hybrid_large",
+        map_location=f"cuda"
+    )
+    
     encoded_audio = run_encoder(
         '/mnt/nfs/mahmoud/ASR/Egypt/pool_5_ARB/32189af34e1d42f7.wav',
         model=model,

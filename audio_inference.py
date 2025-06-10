@@ -139,8 +139,6 @@ def process_single_audio_inference(audio_path, model, encoder, encoder_type, dev
                         normalize=True
                     )
                     
-                    
-                    
                     embedding = encoder_out.mean(dim=2).squeeze(0)  
                     
                     del encoder_out

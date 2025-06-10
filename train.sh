@@ -6,7 +6,7 @@ python train/train_classifier.py \
     --save-dir exp/models \
     --tensorboard-dir exp/runs \
     --encoder-type fastconformer \
-    --encoder-model nvidia/stt_kk_ru_fastconformer_hybrid_large \
+    --encoder-model encoder_model/asr_fastconformer_large_14_universal_kzru_v1_11_01_2025.nemo \
     --batch-size 16 \
     --learning-rate 0.001 \
     --epochs 100 \

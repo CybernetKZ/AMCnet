@@ -13,6 +13,7 @@ from train.dataloader import AudioClassifierDataset
 from train.encoder_dataloader import AudioClassifierDataLoader
 from train.classifier_model import AudioClassifier
 from infernece.encoder_classifier_model import OnnxModel
+from nemo.collections import asr as nemo_asr
 
 def setup_logger():
     formatter = "%(asctime)s %(levelname)s [%(filename)s:%(lineno)d] %(message)s"
@@ -136,13 +137,33 @@ def main():
     
     
     encoder_model = None
-    if all([args.encoder_model, args.decoder_model, args.joiner_model]):
-        logger.info("Initializing encoder model...")
-        encoder_model = OnnxModel(
-            encoder_model_filename=args.encoder_model,
-            decoder_model_filename=args.decoder_model,
-            joiner_model_filename=args.joiner_model,
-        )
+    if args.encoder_type == "zipformer":
+        if args.encoder_model and args.decoder_model and args.joiner_model:
+            logger.info("Initializing zipformer encoder model...")
+            encoder_model = OnnxModel(
+                encoder_model_filename=args.encoder_model,
+                decoder_model_filename=args.decoder_model,
+                joiner_model_filename=args.joiner_model,
+            )
+        else:
+            raise ValueError("For zipformer, all encoder, decoder, and joiner model paths are required")
+    elif args.encoder_type == "fastconformer":
+        if args.encoder_model:
+            logger.info("Initializing fastconformer encoder model...")
+            if ".nemo" not in args.encoder_model:
+                encoder_model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained( 
+                    model_name=args.encoder_model,
+                    map_location=f"cuda"
+                )
+            else:
+                encoder_model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.restore_from( 
+                    restore_path=args.encoder_model,
+                    map_location=f"cuda"
+                )
+        else:
+            raise ValueError("For fastconformer, encoder model path is required")
+    else:
+        raise ValueError(f"Unsupported encoder type: {args.encoder_type}. Use 'zipformer' or 'fastconformer'")
     
     
     model = AudioClassifier(
@@ -160,6 +181,12 @@ def main():
     logger.info(f"Loaded {len(test_audio_files)} test files with classes: 0={test_labels.count(0)}, 1={test_labels.count(1)}")
     
     
+    num_workers = args.num_workers
+    if args.encoder_type == "fastconformer":
+        num_workers = 0  
+        if args.num_workers > 0:
+            logger.warning("Setting num_workers=0 for FastConformer to avoid CUDA multiprocessing issues")
+    
     test_dataset = AudioClassifierDataset(test_audio_files, test_labels, sample_rate=args.sample_rate)
     test_loader = AudioClassifierDataLoader(
         test_dataset,
@@ -167,14 +194,12 @@ def main():
         shuffle=False,
         encoder_model=encoder_model,
         encoder_type=args.encoder_type,
-        num_workers=args.num_workers
+        num_workers=num_workers
     )
-    
     
     logger.info(f"Running test with threshold {args.threshold}...")
     criterion = nn.CrossEntropyLoss()
     metrics, predictions, targets, probabilities = test(model, test_loader, criterion, device, args.threshold)
-    
     
     logger.info("\nTest Results:")
     logger.info(f"Loss: {metrics['loss']:.4f}")
@@ -184,12 +209,10 @@ def main():
     logger.info(f"F1 Score: {metrics['f1']:.4f}")
     logger.info(f"AUC: {metrics['auc']:.4f}")
     
-    
     logger.info("\nConfusion Matrix:")
     logger.info("[[TN, FP]")
     logger.info(" [FN, TP]]")
     logger.info(metrics['confusion_matrix'])
-    
     
     results_df = pd.DataFrame({
         'audio_file': test_audio_files,
@@ -198,19 +221,15 @@ def main():
         'probability': probabilities  
     })
     
-    
     results_df['true_label_text'] = results_df['true_label'].map({0: 'not_machine', 1: 'answering_machine'})
     results_df['predicted_label_text'] = results_df['predicted_label'].map({0: 'not_machine', 1: 'answering_machine'})
-    
     
     results_df['is_correct'] = results_df['true_label'] == results_df['predicted_label']
     misclassified = results_df[~results_df['is_correct']]
     
-    
     misclassified_path = os.path.join(args.output_dir, 'misclassified.csv')
     misclassified.to_csv(misclassified_path, index=False)
     logger.info(f"\nMisclassified files saved to {misclassified_path}")
-    
     
     logger.info("\nMisclassified Files:")
     for _, row in misclassified.iterrows():
@@ -220,11 +239,9 @@ def main():
         logger.info(f"Probability: {row['probability']:.4f}")
         logger.info("---")
     
-    
     results_path = os.path.join(args.output_dir, 'test_results.csv')
     results_df.to_csv(results_path, index=False)
     logger.info(f"\nDetailed results saved to {results_path}")
-    
     
     metrics_path = os.path.join(args.output_dir, 'test_metrics.txt')
     with open(metrics_path, 'w') as f:
