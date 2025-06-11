@@ -9,6 +9,7 @@ This project implements an audio classification system that can identify whether
 - Support for multiple encoder types:
   - **Zipformer models**: ONNX-based encoder models
   - **FastConformer models**: NeMo-based encoder models from NVIDIA
+  - **Wav2Vec models**: HuggingFace-based encoder models
 - Binary classifier with configurable hidden layers
 - Training and validation pipeline
 - Metrics for binary classification (accuracy, precision, recall, F1, AUC)
@@ -29,6 +30,13 @@ This project implements an audio classification system that can identify whether
 - Supports both pre-trained models and custom .nemo files
 - GPU-accelerated inference
 - Direct audio processing with built-in preprocessing
+
+### Wav2Vec (HuggingFace Models)
+- Uses HuggingFace Transformers library
+- Supports various wav2vec2 models (e.g., facebook/wav2vec2-xls-r-300m)
+- GPU-accelerated inference
+- Direct audio processing with built-in preprocessing
+- No additional model files required - downloads automatically
 
 ## Requirements
 
@@ -230,6 +238,24 @@ python train/train_classifier.py \
   --class-weights=1.0,4.0
 ```
 
+### Training with Wav2Vec Models
+
+#### Using Pre-trained HuggingFace Models
+```bash
+python train/train_classifier.py \
+  --train-labels data/train_labels.txt \
+  --val-labels data/val_labels.txt \
+  --encoder-type wav2vec \
+  --encoder-model facebook/wav2vec2-xls-r-300m \
+  --batch-size=16 \
+  --epochs=10 \
+  --learning-rate=0.001 \
+  --hidden-dims=1024,512,256 \
+  --embedding-dim=512 \
+  --save-dir=models \
+  --sample-rate=16000
+```
+
 ## Model Testing
 
 The `test_classifier.py` script provides comprehensive evaluation of your trained model on test data with support for both encoder types.
@@ -280,13 +306,23 @@ python train/test_classifier.py \
   --output-dir test_results
 ```
 
+### Testing with Wav2Vec Models
+
+```bash
+python train/test_classifier.py \
+  --test-labels data/test_labels.txt \
+  --model-path models/best_model.pt \
+  --encoder-type wav2vec \
+  --encoder-model facebook/wav2vec2-xls-r-300m
+```
+
 ### Command Line Arguments
 
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `--test-labels` | ✅ | - | File containing test labels with full paths |
 | `--model-path` | ✅ | - | Path to the trained model checkpoint |
-| `--encoder-type` | ❌ | zipformer | Type of encoder: 'zipformer' or 'fastconformer' |
+| `--encoder-type` | ❌ | zipformer | Type of encoder: 'zipformer', 'fastconformer', or 'wav2vec' |
 | `--encoder-model` | ❌ | None | Path/name of encoder model |
 | `--decoder-model` | ❌ | None | Path to decoder ONNX model (zipformer only) |
 | `--joiner-model` | ❌ | None | Path to joiner ONNX model (zipformer only) |
@@ -436,13 +472,23 @@ python audio_inference.py \
   --min-duration 5.0
 ```
 
+### Inference with Wav2Vec Models
+
+```bash
+python train/infer_classifier.py \
+  --input-file data/test_files.txt \
+  --model-path models/best_model.pt \
+  --encoder-type wav2vec \
+  --encoder-model facebook/wav2vec2-xls-r-300m
+```
+
 ### Command Line Arguments
 
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--input-file` | `data/data_paths.txt` | File containing paths to audio files to process |
 | `--model-path` | `./classifier_model/best_model.pt` | Path to the trained classifier model |
-| `--encoder-type` | `zipformer` | Type of encoder: 'zipformer' or 'fastconformer' |
+| `--encoder-type` | `zipformer` | Type of encoder: 'zipformer', 'fastconformer', or 'wav2vec' |
 | `--encoder-model` | `./encoder_model/encoder-epoch-28-avg-13.onnx` | Path to encoder model (ONNX for zipformer, model name/path for fastconformer) |
 | `--decoder-model` | `./encoder_model/decoder-epoch-28-avg-13.onnx` | Path to decoder ONNX model (zipformer only) |
 | `--joiner-model` | `./encoder_model/joiner-epoch-28-avg-13.onnx` | Path to joiner ONNX model (zipformer only) |
