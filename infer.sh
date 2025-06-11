@@ -2,5 +2,5 @@
 
 python audio_inference.py \
         --input-file data/data_paths.txt \
-        --encoder-type fastconformer \
-        --encoder-model encoder_model/asr_fastconformer_large_14_universal_kzru_v1_11_01_2025.nemo
+        --encoder-type wav2vec \
+        --encoder-model facebook/wav2vec2-xls-r-300m

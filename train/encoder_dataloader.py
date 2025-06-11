@@ -13,8 +13,8 @@ class AudioClassifierDataLoader(DataLoader):
             dataset (AudioClassifierDataset): Dataset containing audio files and labels
             batch_size (int): Number of samples per batch
             shuffle (bool): Whether to shuffle the dataset
-            encoder_model: Encoder model to extract embeddings (zipformer ONNX or fastconformer)
-            encoder_type (str): Type of encoder - "zipformer" or "fastconformer"
+            encoder_model: Encoder model to extract embeddings (zipformer ONNX, fastconformer, or wav2vec)
+            encoder_type (str): Type of encoder - "zipformer", "fastconformer", or "wav2vec"
             num_workers (int): Number of workers for data loading
         """
         self.dataset = dataset
@@ -24,20 +24,20 @@ class AudioClassifierDataLoader(DataLoader):
         self.encoder_type = encoder_type.lower()
         
         
-        if self.encoder_type not in ["zipformer", "fastconformer"]:
-            raise ValueError("encoder_type must be either 'zipformer' or 'fastconformer'")
+        if self.encoder_type not in ["zipformer", "fastconformer", "wav2vec"]:
+            raise ValueError("encoder_type must be 'zipformer', 'fastconformer', or 'wav2vec'")
         
         
-        if self.encoder_type == "fastconformer":
+        if self.encoder_type in ["fastconformer", "wav2vec"]:
             if hasattr(self.dataset, 'return_index'):
                 self.dataset.return_index = True
             else:
-                raise ValueError("Dataset must support return_index=True for fastconformer encoder. "
+                raise ValueError(f"Dataset must support return_index=True for {self.encoder_type} encoder. "
                                "Please use the updated AudioClassifierDataset.")
         
         def collate_fn(batch):
             
-            if self.encoder_type == "fastconformer":
+            if self.encoder_type in ["fastconformer", "wav2vec"]:
                 
                 features = []
                 labels = []
@@ -52,7 +52,7 @@ class AudioClassifierDataLoader(DataLoader):
                         audio_paths.append(self.dataset.audio_files[idx])
                     else:  
                         
-                        raise ValueError("For fastconformer encoder, please modify your dataset to return indices. "
+                        raise ValueError(f"For {self.encoder_type} encoder, please modify your dataset to return indices. "
                                        "See the updated AudioClassifierDataset.")
             else:
                 
@@ -93,6 +93,24 @@ class AudioClassifierDataLoader(DataLoader):
                             
                             emb = encoder_out.mean(dim=2)  
                             emb = emb.squeeze(0)  
+                            embeddings.append(emb)
+                    
+                    elif self.encoder_type == "wav2vec":
+                        
+                        from infernece.wav2vec_encoder import run_encoder
+                        
+                        for audio_path in audio_paths:
+                            
+                            encoder_out = run_encoder(
+                                audio_path=audio_path,
+                                model=self.encoder_model,
+                                target_sample_rate=16000,
+                                normalize=True
+                            )
+                            
+                            # Average pooling over time dimension
+                            emb = encoder_out.mean(dim=1)  # Shape: (batch_size, hidden_size)
+                            emb = emb.squeeze(0)  # Remove batch dimension
                             embeddings.append(emb)
                 
                 

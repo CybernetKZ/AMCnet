@@ -21,8 +21,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Run inference on audio files for answering machine detection")
     parser.add_argument("--input-file", type=str, required=True, help="File containing paths to audio files")
     parser.add_argument("--model-path", type=str, required=True, help="Path to the trained model checkpoint")
-    parser.add_argument("--encoder-type", type=str, default="zipformer", help="Type of encoder - 'zipformer' or 'fastconformer'")
-    parser.add_argument("--encoder-model", type=str, default=None, help="Path to encoder ONNX model")
+    parser.add_argument("--encoder-type", type=str, default="zipformer", help="Type of encoder - 'zipformer', 'fastconformer', or 'wav2vec'")
+    parser.add_argument("--encoder-model", type=str, default=None, help="Path to encoder ONNX model (zipformer), model name/path (fastconformer), or HuggingFace model name (wav2vec)")
     parser.add_argument("--decoder-model", type=str, default=None, help="Path to decoder ONNX model")
     parser.add_argument("--joiner-model", type=str, default=None, help="Path to joiner ONNX model")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
@@ -89,13 +89,42 @@ def main():
     
     
     encoder_model = None
-    if all([args.encoder_model, args.decoder_model, args.joiner_model]):
-        logger.info("Initializing encoder model...")
-        encoder_model = OnnxModel(
-            encoder_model_filename=args.encoder_model,
-            decoder_model_filename=args.decoder_model,
-            joiner_model_filename=args.joiner_model,
-        )
+    if args.encoder_type == "wav2vec":
+        if args.encoder_model:
+            logger.info("Initializing wav2vec encoder model...")
+            from infernece.wav2vec_encoder import Wav2VecEncoder
+            encoder_model = Wav2VecEncoder(
+                model_name=args.encoder_model,
+                device="cuda" if torch.cuda.is_available() else "cpu"
+            )
+        else:
+            raise ValueError("For wav2vec, encoder model path/name is required")
+    elif args.encoder_type == "zipformer":
+        if all([args.encoder_model, args.decoder_model, args.joiner_model]):
+            logger.info("Initializing zipformer encoder model...")
+            encoder_model = OnnxModel(
+                encoder_model_filename=args.encoder_model,
+                decoder_model_filename=args.decoder_model,
+                joiner_model_filename=args.joiner_model,
+            )
+    elif args.encoder_type == "fastconformer":
+        if args.encoder_model:
+            logger.info("Initializing fastconformer encoder model...")
+            from nemo.collections import asr as nemo_asr
+            if ".nemo" not in args.encoder_model:
+                encoder_model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained( 
+                    model_name=args.encoder_model,
+                    map_location=f"cuda"
+                )
+            else:
+                encoder_model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.restore_from( 
+                    restore_path=args.encoder_model,
+                    map_location=f"cuda"
+                )
+        else:
+            raise ValueError("For fastconformer, encoder model path is required")
+    else:
+        raise ValueError(f"Unsupported encoder type: {args.encoder_type}. Use 'zipformer', 'fastconformer', or 'wav2vec'")
     
     
     model = AudioClassifier(
@@ -113,14 +142,21 @@ def main():
     logger.info(f"Loaded {len(audio_files)} audio files")
     
     
-    test_dataset = AudioClassifierDataset(audio_files, [0] * len(audio_files), sample_rate=args.sample_rate)  
+    # Set num_workers (avoid multiprocessing issues with certain encoders)
+    num_workers = args.num_workers
+    if args.encoder_type in ["fastconformer", "wav2vec"]:
+        num_workers = 0
+        if args.num_workers > 0:
+            logger.warning(f"Setting num_workers=0 for {args.encoder_type} to avoid multiprocessing issues")
+    
+    test_dataset = AudioClassifierDataset(audio_files, [0] * len(audio_files), sample_rate=args.sample_rate)  # Dummy labels
     test_loader = AudioClassifierDataLoader(
         test_dataset,
         batch_size=args.batch_size,
         shuffle=False,
         encoder_model=encoder_model,
         encoder_type=args.encoder_type,
-        num_workers=args.num_workers
+        num_workers=num_workers
     )
     
     

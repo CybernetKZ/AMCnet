@@ -26,8 +26,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train audio classifier for answermachine detection")
     parser.add_argument("--train-labels", type=str, required=True, help="File containing training labels with full paths")
     parser.add_argument("--val-labels", type=str, required=True, help="File containing validation labels with full paths")
-    parser.add_argument("--encoder-type", type=str, default="zipformer", help="Type of encoder - 'zipformer' or 'fastconformer'")
-    parser.add_argument("--encoder-model", type=str, default="./encoder_model/encoder-epoch-28-avg-13.onnx", help="Path to encoder ONNX model")
+    parser.add_argument("--encoder-type", type=str, default="zipformer", help="Type of encoder - 'zipformer', 'fastconformer', or 'wav2vec'")
+    parser.add_argument("--encoder-model", type=str, default="./encoder_model/encoder-epoch-28-avg-13.onnx", help="Path to encoder ONNX model (zipformer), model name/path (fastconformer), or HuggingFace model name (wav2vec)")
     parser.add_argument("--decoder-model", type=str, default="./encoder_model/decoder-epoch-28-avg-13.onnx", help="Path to decoder ONNX model")
     parser.add_argument("--joiner-model", type=str, default="./encoder_model/joiner-epoch-28-avg-13.onnx", help="Path to joiner ONNX model")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
@@ -219,7 +219,17 @@ def main():
     logger.info(f"Loaded {len(val_audio_files)} validation files with classes: 0={val_labels.count(0)}, 1={val_labels.count(1)}")
     
     encoder_model = None
-    if args.encoder_model and args.decoder_model and args.joiner_model:
+    if args.encoder_type == "wav2vec":
+        logger.info("Initializing wav2vec encoder model...")
+        from infernece.wav2vec_encoder import Wav2VecEncoder
+        encoder_model = Wav2VecEncoder(
+            model_name=args.encoder_model,
+            device="cuda" if torch.cuda.is_available() else "cpu"
+        )
+        # Set embedding dimension based on wav2vec model
+        args.embedding_dim = encoder_model.feature_dim
+        logger.info(f"Wav2Vec model feature dimension: {encoder_model.feature_dim}")
+    elif args.encoder_model and args.decoder_model and args.joiner_model:
         logger.info("Initializing encoder model...")
         if args.encoder_type == "zipformer":
             encoder_model = OnnxModel(
@@ -227,17 +237,17 @@ def main():
                 decoder_model_filename=args.decoder_model,
                 joiner_model_filename=args.joiner_model,
             )
-        elif args.encoder_type == "fastconformer":
-            if ".nemo" not in args.encoder_model:
-                encoder_model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained( 
-                    model_name=args.encoder_model,
-                    map_location=f"cuda"
-                )
-            else:
-                encoder_model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.restore_from( 
-                    restore_path=args.encoder_model,
-                    map_location=f"cuda"
-                )
+    elif args.encoder_type == "fastconformer":
+        if ".nemo" not in args.encoder_model:
+            encoder_model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained( 
+                model_name=args.encoder_model,
+                map_location=f"cuda"
+            )
+        else:
+            encoder_model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.restore_from( 
+                restore_path=args.encoder_model,
+                map_location=f"cuda"
+            )
     
     logger.info("Creating datasets...")
     train_dataset = AudioClassifierDataset(train_audio_files, train_labels, sample_rate=args.sample_rate)

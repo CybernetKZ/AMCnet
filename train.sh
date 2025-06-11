@@ -5,8 +5,8 @@ python train/train_classifier.py \
     --val-labels data/val_labels.txt \
     --save-dir exp/models \
     --tensorboard-dir exp/runs \
-    --encoder-type fastconformer \
-    --encoder-model encoder_model/asr_fastconformer_large_14_universal_kzru_v1_11_01_2025.nemo \
+    --encoder-type wav2vec \
+    --encoder-model  facebook/wav2vec2-xls-r-300m  \
     --batch-size 16 \
     --learning-rate 0.001 \
     --epochs 100 \

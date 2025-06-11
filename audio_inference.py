@@ -2,7 +2,7 @@
 Audio Inference Script for Answering Machine Detection
 
 This script processes audio files to detect answering machines using a pre-trained classifier.
-Supports both Zipformer (ONNX) and FastConformer (NeMo) encoders.
+Supports Zipformer (ONNX), FastConformer (NeMo), and Wav2Vec encoders.
 
 Usage examples:
     # default
@@ -12,6 +12,11 @@ Usage examples:
     python audio_inference.py --input-file data/audio_paths.txt \
         --encoder-type fastconformer \
         --encoder-model nvidia/stt_kk_ru_fastconformer_hybrid_large
+
+    # Using Wav2Vec encoder
+    python audio_inference.py --input-file data/audio_paths.txt \
+        --encoder-type wav2vec \
+        --encoder-model facebook/wav2vec2-xls-r-300m
 
     # Using FastConformer with local .nemo file
     python audio_inference.py --input-file data/audio_paths.txt \
@@ -66,9 +71,9 @@ def parse_args():
     parser.add_argument("--model-path", type=str, default="./classifier_model/best_model.pt",
                        help="Path to the trained classifier model")
     parser.add_argument("--encoder-type", type=str, default="zipformer", 
-                       help="Type of encoder - 'zipformer' or 'fastconformer'")
+                       help="Type of encoder - 'zipformer', 'fastconformer', or 'wav2vec'")
     parser.add_argument("--encoder-model", type=str, default="./encoder_model/encoder-epoch-28-avg-13.onnx",
-                       help="Path to encoder ONNX model (zipformer) or model name/path (fastconformer)")
+                       help="Path to encoder ONNX model (zipformer), model name/path (fastconformer), or HuggingFace model name (wav2vec)")
     parser.add_argument("--decoder-model", type=str, default="./encoder_model/decoder-epoch-28-avg-13.onnx",
                        help="Path to decoder ONNX model (zipformer only)")
     parser.add_argument("--joiner-model", type=str, default="./encoder_model/joiner-epoch-28-avg-13.onnx",
@@ -125,7 +130,48 @@ def process_single_audio_inference(audio_path, model, encoder, encoder_type, dev
             logger.warning(f"Audio duration ({duration:.2f}s) is less than minimum duration ({min_duration}s). Skipping...")
             raise RuntimeError(f"Audio too short: {duration:.2f}s")
         
-        if encoder_type == "fastconformer":
+        if encoder_type == "wav2vec":
+            
+            from infernece.wav2vec_encoder import run_encoder
+            
+            with torch.no_grad():
+                try:
+                    
+                    encoder_out = run_encoder(
+                        audio_path=audio_path,
+                        model=encoder,
+                        target_sample_rate=sample_rate,
+                        normalize=True
+                    )
+                    
+                    # Average pooling over time dimension
+                    embedding = encoder_out.mean(dim=1).squeeze(0)
+                    
+                    del encoder_out
+                    encoder_out = None
+                    clear_memory()
+                    
+                    embedding_tensor = embedding.unsqueeze(0).to(device)
+                    del embedding
+                    embedding = None
+                    
+                    outputs = model(embedding_tensor)
+                    probs = torch.softmax(outputs, dim=1)
+                    prob = probs[0][1].item() 
+                    pred = 1 if prob > threshold else 0
+                    
+                    del embedding_tensor, outputs, probs
+                    embedding_tensor = None
+                    outputs = None
+                    probs = None
+
+                    return pred, prob
+                    
+                except Exception as e:
+                    logger.error(f"Error in Wav2Vec processing: {str(e)}")
+                    raise
+        
+        elif encoder_type == "fastconformer":
             
             from infernece.fastconformer_encoder import run_encoder
             
@@ -362,6 +408,7 @@ def main():
     
     logger.info(f"Input file: {args.input_file}")
     logger.info(f"Model path: {args.model_path}")
+    logger.info(f"Encoder type: {args.encoder_type}")
     logger.info(f"Threshold: {args.threshold}")
     logger.info(f"Sample rate: {args.sample_rate}")
     logger.info(f"Minimum duration: {args.min_duration}s")
@@ -405,7 +452,14 @@ def main():
         checkpoint = torch.load(args.model_path, map_location=device)
         
         
-        if args.encoder_type == "zipformer":
+        if args.encoder_type == "wav2vec":
+            logger.info("Initializing wav2vec encoder model...")
+            from infernece.wav2vec_encoder import Wav2VecEncoder
+            encoder = Wav2VecEncoder(
+                model_name=args.encoder_model,
+                device="cuda" if torch.cuda.is_available() else "cpu"
+            )
+        elif args.encoder_type == "zipformer":
             if all([args.encoder_model, args.decoder_model, args.joiner_model]):
                 logger.info("Initializing zipformer encoder model...")
                 encoder = OnnxModel(
@@ -428,7 +482,7 @@ def main():
                     map_location=f"cuda"
                 )
         else:
-            raise ValueError(f"Unsupported encoder type: {args.encoder_type}. Use 'zipformer' or 'fastconformer'")
+            raise ValueError(f"Unsupported encoder type: {args.encoder_type}. Use 'zipformer', 'fastconformer', or 'wav2vec'")
         
         model = AudioClassifier(
             input_dim=checkpoint['input_dim'],

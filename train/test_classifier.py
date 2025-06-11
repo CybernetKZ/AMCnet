@@ -24,8 +24,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Test audio classifier for answermachine detection")
     parser.add_argument("--test-labels", type=str, required=True, help="File containing test labels with full paths")
     parser.add_argument("--model-path", type=str, required=True, help="Path to the trained model checkpoint")
-    parser.add_argument("--encoder-type", type=str, default="zipformer", help="Type of encoder - 'zipformer' or 'fastconformer'")
-    parser.add_argument("--encoder-model", type=str, default=None, help="Path to encoder ONNX model")
+    parser.add_argument("--encoder-type", type=str, default="zipformer", help="Type of encoder - 'zipformer', 'fastconformer', or 'wav2vec'")
+    parser.add_argument("--encoder-model", type=str, default=None, help="Path to encoder ONNX model (zipformer), model name/path (fastconformer), or HuggingFace model name (wav2vec)")
     parser.add_argument("--decoder-model", type=str, default=None, help="Path to decoder ONNX model")
     parser.add_argument("--joiner-model", type=str, default=None, help="Path to joiner ONNX model")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
@@ -137,7 +137,17 @@ def main():
     
     
     encoder_model = None
-    if args.encoder_type == "zipformer":
+    if args.encoder_type == "wav2vec":
+        if args.encoder_model:
+            logger.info("Initializing wav2vec encoder model...")
+            from infernece.wav2vec_encoder import Wav2VecEncoder
+            encoder_model = Wav2VecEncoder(
+                model_name=args.encoder_model,
+                device="cuda" if torch.cuda.is_available() else "cpu"
+            )
+        else:
+            raise ValueError("For wav2vec, encoder model path/name is required")
+    elif args.encoder_type == "zipformer":
         if args.encoder_model and args.decoder_model and args.joiner_model:
             logger.info("Initializing zipformer encoder model...")
             encoder_model = OnnxModel(
@@ -163,7 +173,7 @@ def main():
         else:
             raise ValueError("For fastconformer, encoder model path is required")
     else:
-        raise ValueError(f"Unsupported encoder type: {args.encoder_type}. Use 'zipformer' or 'fastconformer'")
+        raise ValueError(f"Unsupported encoder type: {args.encoder_type}. Use 'zipformer', 'fastconformer', or 'wav2vec'")
     
     
     model = AudioClassifier(
@@ -182,10 +192,10 @@ def main():
     
     
     num_workers = args.num_workers
-    if args.encoder_type == "fastconformer":
-        num_workers = 0  
+    if args.encoder_type in ["fastconformer", "wav2vec"]:
+        num_workers = 0  # Avoid multiprocessing issues with these encoders
         if args.num_workers > 0:
-            logger.warning("Setting num_workers=0 for FastConformer to avoid CUDA multiprocessing issues")
+            logger.warning(f"Setting num_workers=0 for {args.encoder_type} to avoid multiprocessing issues")
     
     test_dataset = AudioClassifierDataset(test_audio_files, test_labels, sample_rate=args.sample_rate)
     test_loader = AudioClassifierDataLoader(
